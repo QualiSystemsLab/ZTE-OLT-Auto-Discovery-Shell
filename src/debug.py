@@ -12,12 +12,11 @@ context.connectivity = mock.MagicMock() #mock.create_autospec(ConnectivityContex
 context.reservation.reservation_id = "<RESERVATION_ID>"
 context.reservation.domain = "Global"
 context.resource.address = "192.168.0.69"
-context.resource.name = "RM_00/OLT03"
+context.resource.name = "test"
 context.resource.attributes = dict()
-context.resource.attributes["{}.User".format(shell_name)] = "cloudshell"
-context.resource.attributes["{}.Password".format(shell_name)] = "_Cl0udSh3ll"
-#context.resource.attributes["{}.SNMP Read Community".format(shell_name)] = "cHVibGlj"
-context.resource.attributes["{}.SNMP Read Community".format(shell_name)] = "dDNzN0xhOA=="
+context.resource.attributes["{}.User".format(shell_name)] = "username"
+context.resource.attributes["{}.Password".format(shell_name)] = "password"
+context.resource.attributes["{}.SNMP Read Community".format(shell_name)] = "public"
 context.resource.attributes["{}.Sessions Concurrency Limit".format(shell_name)] = "1"
 context.resource.attributes["{}.CLI Connection Type".format(shell_name)] = "Auto"
 
@@ -30,7 +29,7 @@ driver.initialize(context)
 
 with mock.patch('cloudshell.api.cloudshell_api.CloudShellAPISession.__init__', mock.Mock(return_value=None)) as api:
     ret = mock.Mock()
-    ret.Value = 'openfiber_ro'
+    ret.Value = 'public'
     with mock.patch('cloudshell.api.cloudshell_api.CloudShellAPISession.DecryptPassword', mock.Mock(return_value=ret)) as decrypt:
         driver.get_inventory(context)
 

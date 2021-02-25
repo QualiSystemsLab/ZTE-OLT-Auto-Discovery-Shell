@@ -26,6 +26,8 @@ class ZTEGenericSNMPDiscovery:
         self._chassis = {}
         self.entity_table_black_list = []
         self.chassis_list = []
+        self.module_dict = dict()
+        self.module_num = 1
         self.port_exclude_pattern = 'TEST'
         self.port_mapping = {}
         self.port_list = []
@@ -58,21 +60,30 @@ class ZTEGenericSNMPDiscovery:
 
         sysDescr = self.snmp.get_property('SNMPv2-MIB', 'sysDescr', '0')
 
-        match_version = re.search(r'Version:\s+(?P<software_version>\S+)\S*\s+', sysDescr)
-        if match_version:
-            match_version = match_version.groupdict()['software_version'].replace(',', '')
+        version_match = sysDescr.split('Version: ')[-1]
+        version = version_match.split(' ')[0]
 
-        match_vendor_model = re.search(r'HwSku:\s+(?P<vendor_model>\S+)\S*\s+', sysDescr)
-        if match_vendor_model:
-            match_vendor_model = match_vendor_model.groupdict()['vendor_model'].replace(',', '')
-            vendor, model = match_vendor_model.split('-', 1)
-        else:
-            vendor = model = None
+        model_match = sysDescr.split(',')[0]
+        model = model_match.split(' ')[-1]
+
+        vendor = 'ZTE'
+
+        #match_version = re.search(r'Version:\s+(?P<software_version>\S+)\S*\s+', sysDescr)
+        #print sysDescr
+        #if match_version:
+        #    match_version = match_version.groupdict()['software_version'].replace(',', '')
+
+        #match_vendor_model = re.search(r'HwSku:\s+(?P<vendor_model>\S+)\S*\s+', sysDescr)
+        #if match_vendor_model:
+        #    match_vendor_model = match_vendor_model.groupdict()['vendor_model'].replace(',', '')
+        #    vendor, model = match_vendor_model.split('-', 1)
+        #else:
+        #    vendor = model = None
 
         self.resource.contact_name = self.snmp.get_property('SNMPv2-MIB', 'sysContact', '0')
         self.resource.system_name = self.snmp.get_property('SNMPv2-MIB', 'sysName', '0')
         self.resource.location = self.snmp.get_property('SNMPv2-MIB', 'sysLocation', '0')
-        self.resource.os_version = match_version
+        self.resource.os_version = version
         self.resource.vendor = vendor
         self.resource.model = model
 
@@ -240,7 +251,8 @@ class ZTEGenericSNMPDiscovery:
         interface_indexes = self.snmp.get_table('IF-MIB', 'ifDescr')
 
         for index in interface_indexes.keys():
-            interface_name = self.snmp.get_property('IF-MIB', 'ifDescr', index).replace('/', '-').replace(':', '-')
+            #interface_name = self.snmp.get_property('IF-MIB', 'ifDescr', index).replace('/', '-').replace(':', '-')
+            interface_name = self.snmp.get_property('IF-MIB', 'ifName', index).replace('/', '-').replace(':', '-')
 
             if interface_name != '' and 'Channel' not in interface_indexes.get(index).get('ifDescr'):
                 interface = self.resource_model.GenericPort(shell_name=self.shell_name,
@@ -266,34 +278,41 @@ class ZTEGenericSNMPDiscovery:
                 interface.auto_negotiation = False
                 interface.port_description = interface_indexes.get(index).get('ifDescr')
 
-                chassis.add_sub_resource(index, interface)
+                module = self._get_module(interface_name)
 
-            '''if 'Channel' in interface_indexes.get(index).get('ifDescr'):
-                interface = self.resource_model.GenericPortChannel(shell_name=self.shell_name,
-                                                                   name=interface_name,
-                                                                   unique_id="{0}.{1}.{2}".format(self.resource_name, "portchannel", index))
+                if module is not None:
+                    module.add_sub_resource(index, interface)
+
+
+    def _get_module(self, interface_name):
+        module = None
+        if self.chassis_list == {}:
+            chassis = self._chassis['1']
+        else:
+            chassis = self._chassis[self.chassis_list[0]]
+
+        if interface_name.count('-') >= 3:
+            temp = interface_name.split('-')
+            key = '-'.join(temp[0:len(temp) - 1])
+
+            if key not in self.module_dict:
+                module = self.resource_model.GenericModule(shell_name=self.shell_name,
+                                                           name="Module {}".format(self.module_num),
+                                                           unique_id="{0}.{1}.{2}".format(self.resource_name, "module", self.module_num))
+                chassis.add_sub_resource(self.module_num, module)
+                self.module_dict[key] = module
+                self.module_num += 1
             else:
-                interface = self.resource_model.GenericPort(shell_name=self.shell_name,
-                                                            name=interface_name,
-                                                            unique_id="{0}.{1}.{2}".format(self.resource_name, "port", index))
-                interface.l2_protocol_type = self.snmp.get_property('IF-MIB', 'ifType', index).strip('\'')
-                interface.mac_address = self.snmp.get_property('IF-MIB', 'ifPhysAddress', index)
-                interface.mtu = self.snmp.get_property('IF-MIB', 'ifMtu', index)
-                interface.bandwidth = self.snmp.get_property('IF-MIB', 'ifHighSpeed', index)
+                module = self.module_dict[key]
+        else:
+            if 'default' not in self.module_dict:
+                module = self.resource_model.GenericModule(shell_name=self.shell_name,
+                                                           name="Module {}".format(self.module_num),
+                                                           unique_id="{0}.{1}.{2}".format(self.resource_name, "module", self.module_num))
+                chassis.add_sub_resource(self.module_num, module)
+                self.module_dict['default'] = module
+                self.module_num += 1
+            else:
+                module = self.module_dict['default']
 
-                duplex = None
-                snmp_result = self.snmp.get_property('EtherLike-MIB', 'dot3StatsDuplexStatus', index)
-                if snmp_result:
-                    port_duplex = snmp_result.strip('\'')
-                    if re.search(r'[Ff]ull', port_duplex):
-                        duplex = 'Full'
-                    else:
-                        duplex = 'Half'
-                interface.duplex = duplex
-
-                interface.adjacent = None
-                interface.auto_negotiation = False
-
-                interface.port_description = interface_indexes.get(index).get('ifDescr')
-
-                chassis.add_sub_resource(index, interface)'''
+        return module
